@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.exe
+.env
+.venv/
+venv/
+*_vertical_bars.pdf
+test_*.pdf
