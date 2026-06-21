@@ -17,8 +17,10 @@ from models import Markup, MarkupCollection, ReinforcementRegistry
 GREEN = (0, 0.75, 0)
 RED = (1, 0, 0)
 LINE_WIDTH = 1.5
+DIMENSION_ARROW_LINE_WIDTH = 0.75
 EDGE_BOUNDARY_HORIZONTAL_MM = 600
 COLUMN_CENTER_DOT_DIAMETER_MM = 2.2
+DIMENSION_ARROW_CHEVRON_MM = COLUMN_CENTER_DOT_DIAMETER_MM
 
 
 def default_vertical_bars_output_path(input_path: str) -> str:
@@ -73,10 +75,11 @@ def _add_green_line(
     page: fitz.Page,
     start: tuple[float, float],
     end: tuple[float, float],
+    width: float = LINE_WIDTH,
 ) -> None:
     annot = page.add_line_annot(fitz.Point(*start), fitz.Point(*end))
     annot.set_colors(stroke=GREEN)
-    annot.set_border(width=LINE_WIDTH)
+    annot.set_border(width=width)
     annot.update()
 
 
@@ -100,6 +103,61 @@ def _add_red_dot_at_center(
     annot.update()
 
 
+def _add_simple_horizontal_arrow(
+    page: fitz.Page,
+    center_x: float,
+    center_y: float,
+    length_pts: float,
+    pointing_left: bool,
+) -> None:
+    """Thin shaft with a small open chevron at the tip (<- or ->)."""
+    chevron = mm_to_pdf_points(DIMENSION_ARROW_CHEVRON_MM)
+    wing_x = chevron * 0.45
+    wing_y = chevron * 0.3
+
+    if pointing_left:
+        tip_x = center_x - length_pts
+        _add_green_line(page, (center_x, center_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH)
+        _add_green_line(
+            page, (tip_x + wing_x, center_y - wing_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH
+        )
+        _add_green_line(
+            page, (tip_x + wing_x, center_y + wing_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH
+        )
+    else:
+        tip_x = center_x + length_pts
+        _add_green_line(page, (center_x, center_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH)
+        _add_green_line(
+            page, (tip_x - wing_x, center_y - wing_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH
+        )
+        _add_green_line(
+            page, (tip_x - wing_x, center_y + wing_y), (tip_x, center_y), DIMENSION_ARROW_LINE_WIDTH
+        )
+
+
+def _add_dimension_x_arrows(
+    page: fitz.Page,
+    center_x: float,
+    center_y: float,
+    dimension_x: float | int | None,
+    scale: int,
+    comment: str,
+    warnings: list[str],
+) -> None:
+    """Left and right horizontal arrows from the column centre, each half of dimension_x."""
+    if dimension_x is None:
+        warnings.append(f"'{comment}': dimension_x missing — skipped dimension arrows.")
+        return
+
+    half_pts = real_world_mm_to_pdf_points(float(dimension_x) / 2, scale)
+    if half_pts <= 0:
+        warnings.append(f"'{comment}': invalid dimension_x — skipped dimension arrows.")
+        return
+
+    _add_simple_horizontal_arrow(page, center_x, center_y, half_pts, pointing_left=True)
+    _add_simple_horizontal_arrow(page, center_x, center_y, half_pts, pointing_left=False)
+
+
 def apply_vertical_bars(
     input_path: str,
     output_path: str,
@@ -113,7 +171,8 @@ def apply_vertical_bars(
     Interior: line centred on the column with length bar_length_y.
     Edge Along X / Corner: vertical line from nearest boundary through the column centre,
     plus a 600 mm horizontal line at the boundary intersection extending left.
-    All vertical bars also get a 2.2 mm red dot at the column centre on the line.
+    All vertical bars also get left/right dimension arrows (each half of dimension_x),
+    then a 2.2 mm red dot at the column centre drawn on top.
 
     Returns (interior_added, edge_corner_added, warnings).
     """
@@ -178,6 +237,15 @@ def apply_vertical_bars(
                 if horiz_pts > 0:
                     h_start, h_end = horizontal_line_to_left(start[0], start[1], horiz_pts)
                     _add_green_line(page, h_start, h_end)
+                _add_dimension_x_arrows(
+                    page,
+                    markup.center_x,
+                    markup.center_y,
+                    reinforcement.dimension_x,
+                    scale,
+                    comment,
+                    warnings,
+                )
                 _add_red_dot_at_center(page, markup.center_x, markup.center_y)
                 edge_corner_added += 1
             else:
@@ -189,6 +257,15 @@ def apply_vertical_bars(
                 interior_added += 1
                 page = doc[page_index]
                 _add_green_line(page, start, end)
+                _add_dimension_x_arrows(
+                    page,
+                    markup.center_x,
+                    markup.center_y,
+                    reinforcement.dimension_x,
+                    scale,
+                    comment,
+                    warnings,
+                )
                 _add_red_dot_at_center(page, markup.center_x, markup.center_y)
 
         doc.save(output_path, garbage=4, deflate=True)
