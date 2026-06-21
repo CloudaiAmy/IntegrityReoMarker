@@ -7,6 +7,7 @@ import fitz
 from geometry import (
     closest_boundary_point_vertical,
     horizontal_line_to_left,
+    mm_to_pdf_points,
     real_world_mm_to_pdf_points,
     vertical_line_centered,
     vertical_line_from_boundary_through_center,
@@ -14,8 +15,10 @@ from geometry import (
 from models import Markup, MarkupCollection, ReinforcementRegistry
 
 GREEN = (0, 0.75, 0)
+RED = (1, 0, 0)
 LINE_WIDTH = 1.5
 EDGE_BOUNDARY_HORIZONTAL_MM = 600
+COLUMN_CENTER_DOT_DIAMETER_MM = 2.2
 
 
 def default_vertical_bars_output_path(input_path: str) -> str:
@@ -77,6 +80,26 @@ def _add_green_line(
     annot.update()
 
 
+def _add_red_dot_at_center(
+    page: fitz.Page,
+    center_x: float,
+    center_y: float,
+) -> None:
+    """Filled red circle at the column centre (2.2 mm diameter on the printed sheet)."""
+    diameter_pts = mm_to_pdf_points(COLUMN_CENTER_DOT_DIAMETER_MM)
+    radius = diameter_pts / 2
+    rect = fitz.Rect(
+        center_x - radius,
+        center_y - radius,
+        center_x + radius,
+        center_y + radius,
+    )
+    annot = page.add_circle_annot(rect)
+    annot.set_colors(stroke=RED, fill=RED)
+    annot.set_border(width=0)
+    annot.update()
+
+
 def apply_vertical_bars(
     input_path: str,
     output_path: str,
@@ -90,6 +113,7 @@ def apply_vertical_bars(
     Interior: line centred on the column with length bar_length_y.
     Edge Along X / Corner: vertical line from nearest boundary through the column centre,
     plus a 600 mm horizontal line at the boundary intersection extending left.
+    All vertical bars also get a 2.2 mm red dot at the column centre on the line.
 
     Returns (interior_added, edge_corner_added, warnings).
     """
@@ -154,6 +178,7 @@ def apply_vertical_bars(
                 if horiz_pts > 0:
                     h_start, h_end = horizontal_line_to_left(start[0], start[1], horiz_pts)
                     _add_green_line(page, h_start, h_end)
+                _add_red_dot_at_center(page, markup.center_x, markup.center_y)
                 edge_corner_added += 1
             else:
                 start, end = vertical_line_centered(
@@ -164,6 +189,7 @@ def apply_vertical_bars(
                 interior_added += 1
                 page = doc[page_index]
                 _add_green_line(page, start, end)
+                _add_red_dot_at_center(page, markup.center_x, markup.center_y)
 
         doc.save(output_path, garbage=4, deflate=True)
     finally:
